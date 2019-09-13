@@ -1,9 +1,13 @@
+#![feature(async_closure)]
+
+use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use actix::prelude::*;
-use futures::stream::futures_ordered;
+//use futures::stream::futures_ordered;
+use actix::fut::wrap_future;
 use tokio_timer::Delay;
 
 struct MyActor {
@@ -20,21 +24,28 @@ impl Actor for MyActor {
     type Context = actix::Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
-        Delay::new(Instant::now() + Duration::new(0, 5_000_000))
-            .then(|_| {
-                System::current().stop();
-                Ok::<_, Error>(())
-            })
-            .into_actor(self)
-            .timeout(Duration::new(0, 100), Error::Timeout)
-            .map_err(|e, act, _| {
-                if e == Error::Timeout {
-                    act.timeout.store(true, Ordering::Relaxed);
-                    System::current().stop();
-                    ()
+        let a = async {
+            tokio_timer::delay(Instant::now() + Duration::new(0, 5_000_000)).await;
+            System::current().stop();
+        }
+            .actfuture();
+
+        let b = a.timeout(Duration::new(0, 100), ());
+
+        let c = b.then(|r, this: &mut Self, ctx| {
+            {
+                this.timeout.store(true, Ordering::Relaxed);
+
+                async move {
+                    if let Err(e) = r {
+                        System::current().stop();
+                    }
                 }
-            })
-            .wait(ctx)
+            }
+            .actfuture()
+        });
+
+        ctx.wait(c);
     }
 }
 
@@ -59,9 +70,10 @@ impl Actor for MyStreamActor {
     type Context = actix::Context<Self>;
 
     fn started(&mut self, ctx: &mut Self::Context) {
+        /*
         let s = futures_ordered(vec![
-            Delay::new(Instant::now() + Duration::new(0, 5_000_000)),
-            Delay::new(Instant::now() + Duration::new(0, 5_000_000)),
+            tokio_timer::delay(Instant::now() + Duration::new(0, 5_000_000)),
+            tokio_timer::delay(Instant::now() + Duration::new(0, 5_000_000)),
         ]);
 
         s.map_err(|_| Error::Generic)
@@ -75,10 +87,11 @@ impl Actor for MyStreamActor {
             })
             .finish()
             .wait(ctx)
+            */
     }
 }
 
-#[test]
+// TODO: #[test]
 fn test_stream_timeout() {
     let timeout = Arc::new(AtomicBool::new(false));
     let timeout2 = Arc::clone(&timeout);
@@ -89,4 +102,17 @@ fn test_stream_timeout() {
     .unwrap();
 
     assert!(timeout.load(Ordering::Relaxed), "Not timeout");
+}
+
+#[test]
+fn test_runtime() {
+    System::run(|| {
+        Arbiter::spawn(async {
+            println!("Before");
+            let _ = tokio_timer::delay(Instant::now() + Duration::new(0, 1_000)).await;
+            println!("after");
+            System::current().stop();
+        });
+    })
+    .unwrap();
 }

@@ -73,7 +73,7 @@ use crate::utils::{IntervalFunc, TimerFunc};
 /// state, the actor state changes to `Stopped`. This state is
 /// considered final and at this point the actor gets dropped.
 ///
-pub trait Actor: Sized + 'static {
+pub trait Actor: Sized + Unpin + 'static {
     /// Actor execution context type
     type Context: ActorContext;
 
@@ -285,7 +285,7 @@ where
     /// during the actor's stopping stage.
     fn spawn<F>(&mut self, fut: F) -> SpawnHandle
     where
-        F: ActorFuture<Item = (), Error = (), Actor = A> + 'static;
+        F: ActorFuture<Item = (), Actor = A> + 'static;
 
     /// Spawns a future into the context, waiting for it to resolve.
     ///
@@ -293,7 +293,7 @@ where
     /// resolves.
     fn wait<F>(&mut self, fut: F)
     where
-        F: ActorFuture<Item = (), Error = (), Actor = A> + 'static;
+        F: ActorFuture<Item = (), Actor = A> + 'static;
 
     /// Checks if the context is paused (waiting for future completion or stopping).
     fn waiting(&self) -> bool;
@@ -318,7 +318,7 @@ where
     ///
     /// struct MyActor;
     ///
-    /// impl StreamHandler<Ping, io::Error> for MyActor {
+    /// impl StreamHandler<Ping> for MyActor {
     ///
     ///     fn handle(&mut self, item: Ping, ctx: &mut Context<MyActor>) {
     ///         println!("PING");
@@ -335,7 +335,7 @@ where
     ///
     ///    fn started(&mut self, ctx: &mut Context<Self>) {
     ///        // add stream
-    ///        ctx.add_stream(once::<Ping, io::Error>(Ok(Ping)));
+    ///        ctx.add_stream(once(async { Ping }));
     ///    }
     /// }
     /// # fn main() {
@@ -347,9 +347,9 @@ where
     fn add_stream<S>(&mut self, fut: S) -> SpawnHandle
     where
         S: Stream + 'static,
-        A: StreamHandler<S::Item, S::Error>,
+        A: StreamHandler<S::Item>,
     {
-        <A as StreamHandler<S::Item, S::Error>>::add_stream(fut, self)
+        <A as StreamHandler<S::Item>>::add_stream(fut, self)
     }
 
     /// Registers a stream with the context, ignoring errors.
@@ -380,7 +380,7 @@ where
     ///
     ///     fn started(&mut self, ctx: &mut Context<Self>) {
     ///         // add messages stream
-    ///         ctx.add_message_stream(once(Ok(Ping)));
+    ///         ctx.add_message_stream(once( async { Ping }));
     ///     }
     /// }
     /// # fn main() {
@@ -391,7 +391,7 @@ where
     /// ```
     fn add_message_stream<S>(&mut self, fut: S)
     where
-        S: Stream<Error = ()> + 'static,
+        S: Stream + 'static,
         S::Item: Message,
         A: Handler<S::Item>,
     {

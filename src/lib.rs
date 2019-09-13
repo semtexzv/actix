@@ -46,6 +46,9 @@ pub use actix_derive::*;
 #[cfg(test)]
 doc_comment::doctest!("../README.md");
 
+#[macro_use]
+extern crate pin_project;
+
 mod actor;
 mod context;
 mod contextimpl;
@@ -60,7 +63,7 @@ mod mailbox;
 pub mod actors;
 pub mod clock;
 pub mod fut;
-pub mod io;
+//pub mod io;
 pub mod registry;
 pub mod sync;
 pub mod utils;
@@ -85,6 +88,7 @@ pub use crate::sync::{SyncArbiter, SyncContext};
 
 #[doc(hidden)]
 pub use crate::context::ContextFutureSpawner;
+use std::future::Future;
 
 pub mod prelude {
     //! The `actix` prelude.
@@ -121,7 +125,7 @@ pub mod prelude {
     pub use crate::actors;
     pub use crate::dev;
     pub use crate::fut;
-    pub use crate::io;
+    //pub use crate::io;
     pub use crate::utils::{Condition, IntervalFunc, TimerFunc};
 
     pub use futures::{Future, Stream};
@@ -168,13 +172,14 @@ pub mod dev {
 /// ```
 /// # use futures::Future;
 /// use std::time::{Duration, Instant};
-/// use tokio_timer::Delay;
+/// use tokio_timer::delay;
 ///
 /// fn main() {
 ///   actix::run(
-///       || Delay::new(Instant::now() + Duration::from_millis(100))
-///            .map(|_| actix::System::current().stop())
-///            .map_err(|_| ())
+///       || async {
+///         delay(Instant::now() + Duration::from_millis(100)).await;
+///         actix::System::current().stop()
+///      }
 ///   );
 /// }
 /// ```
@@ -185,7 +190,7 @@ pub mod dev {
 pub fn run<F, R>(f: F) -> std::io::Result<()>
 where
     F: FnOnce() -> R,
-    R: futures::Future<Item = (), Error = ()> + 'static,
+    R: Future<Output = ()> + 'static,
 {
     let sys = actix_rt::System::new("Default");
     actix_rt::spawn(f());
@@ -199,7 +204,7 @@ where
 /// This function panics if the actix system is not running.
 pub fn spawn<F>(f: F)
 where
-    F: futures::Future<Item = (), Error = ()> + 'static,
+    F: Future<Output = ()> + 'static,
 {
     actix_rt::spawn(f);
 }
